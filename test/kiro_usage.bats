@@ -123,6 +123,28 @@ setup() {
   [ "$output" = "██░░░░░░░░ 400/2000" ]
 }
 
+@test "bundled used-only parser removes the decimal portion" {
+  export FAKE_KIRO_USED="159.99"
+  export FAKE_KIRO_TOTAL="2000"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh used-only"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "159" ]
+}
+
+@test "bundled used-only parser preserves integer values" {
+  export FAKE_KIRO_USED="159"
+  export FAKE_KIRO_TOTAL="2000"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh used-only"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "159" ]
+}
+
 @test "bundled credits parser restores the plain Credits line" {
   export FAKE_KIRO_USED="156.67"
   export FAKE_KIRO_TOTAL="2000"

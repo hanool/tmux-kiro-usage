@@ -51,20 +51,20 @@ main() {
   local mode="${1:-}"
 
   case "$mode" in
-    bar | credits) ;;
+    bar | credits | used-only) ;;
     *)
-      printf 'Usage: %s {bar|credits}\n' "$0" >&2
+      printf 'Usage: %s {bar|credits|used-only}\n' "$0" >&2
       return 2
       ;;
   esac
 
   parse_credits || return 1
 
-  if [ "$mode" = "bar" ]; then
-    print_bar
-  else
-    printf 'Credits (%s of %s covered in plan)\n' "$USED_CREDITS" "$TOTAL_CREDITS"
-  fi
+  case "$mode" in
+    bar) print_bar ;;
+    credits) printf 'Credits (%s of %s covered in plan)\n' "$USED_CREDITS" "$TOTAL_CREDITS" ;;
+    used-only) printf '%s\n' "${USED_CREDITS%%.*}" ;;
+  esac
 }
 
 main "$@"

@@ -183,6 +183,29 @@ Output:
 ▊░░░░░░░░░ 156.67/2000
 ```
 
+### Used credits only
+
+This mode removes the decimal portion without rounding.
+
+Test it directly:
+
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1 |
+  ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh used-only
+```
+
+Configure it:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh used-only"
+```
+
+Output:
+
+```text
+159
+```
+
 ### Full Credits line
 
 Test it directly:
