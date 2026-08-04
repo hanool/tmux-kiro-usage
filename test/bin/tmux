@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+case "${1:-}" in
+  show-option)
+    case "${3:-}" in
+      @kiro_usage_parser)
+        printf '%s\n' "${TMUX_KIRO_USAGE_PARSER:-}"
+        ;;
+      @kiro_usage_refresh_interval)
+        printf '%s\n' "${TMUX_KIRO_USAGE_REFRESH_INTERVAL:-}"
+        ;;
+      status-left)
+        printf '%s\n' "${TMUX_STATUS_LEFT:-}"
+        ;;
+      status-right)
+        printf '%s\n' "${TMUX_STATUS_RIGHT:-}"
+        ;;
+    esac
+    ;;
+  set-option)
+    if [ -n "${FAKE_TMUX_SET_LOG:-}" ]; then
+      printf '%s\t%s\n' "${3:-}" "${4:-}" >> "$FAKE_TMUX_SET_LOG"
+    fi
+    ;;
+  *)
+    exit 2
+    ;;
+esac
