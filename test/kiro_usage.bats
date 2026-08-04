@@ -28,6 +28,17 @@ setup() {
   [ "$output" = "73.42/950" ]
 }
 
+@test "base parser does not require awk or cksum" {
+  awk() { return 97; }
+  cksum() { return 98; }
+  export -f awk cksum
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "140.08/2000" ]
+}
+
 @test "returns N/A for an unsupported kiro-cli version" {
   export FAKE_KIRO_VERSION="2.17.0"
 
@@ -83,6 +94,49 @@ setup() {
 @test "returns N/A when the custom parser fails" {
   export FAKE_KIRO_USAGE_MODE="custom"
   export TMUX_KIRO_USAGE_PARSER="false"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "N/A" ]
+}
+
+@test "bundled bar parser renders fractional blocks and credit values" {
+  export FAKE_KIRO_USED="156.67"
+  export FAKE_KIRO_TOTAL="2000"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh bar"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "▊░░░░░░░░░ 156.67/2000" ]
+}
+
+@test "bundled bar parser renders complete blocks at exact boundaries" {
+  export FAKE_KIRO_USED="400"
+  export FAKE_KIRO_TOTAL="2000"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh bar"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "██░░░░░░░░ 400/2000" ]
+}
+
+@test "bundled credits parser restores the plain Credits line" {
+  export FAKE_KIRO_USED="156.67"
+  export FAKE_KIRO_TOTAL="2000"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh credits"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "Credits (156.67 of 2000 covered in plan)" ]
+}
+
+@test "bundled parser returns N/A for malformed output" {
+  export FAKE_KIRO_USAGE_MODE="malformed"
+  export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh credits"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
 

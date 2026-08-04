@@ -28,15 +28,15 @@ get_refresh_interval() {
 
 get_cache_key() {
   local parser="$1"
-  local checksum
+  local escaped_parser
 
   if [ -z "$parser" ]; then
     printf 'default:%s\n' "$SUPPORTED_KIRO_VERSION"
     return
   fi
 
-  checksum="$(printf '%s' "$parser" | cksum | awk '{ print $1 ":" $2 }')"
-  printf 'custom:%s\n' "$checksum"
+  printf -v escaped_parser '%q' "$parser"
+  printf 'custom:%s\n' "$escaped_parser"
 }
 
 read_cache() {
@@ -89,37 +89,35 @@ write_cache() {
 }
 
 parse_2_16_0() {
-  awk '
-    index($0, "Credits") && index($0, "covered in plan") {
-      line = $0
-      sub(/^.*\(/, "", line)
-      sub(/\).*$/, "", line)
+  local line
+  local result
+  local matches=0
+  local regex='Credits.*\(([0-9]+([.][0-9]+)?)[[:space:]]+of[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+covered[[:space:]]+in[[:space:]]+plan\)'
 
-      if (split(line, parts, /[[:space:]]+of[[:space:]]+/) != 2) {
-        next
-      }
+  while IFS= read -r line; do
+    if [[ "$line" =~ $regex ]]; then
+      result="${BASH_REMATCH[1]}/${BASH_REMATCH[3]}"
+      ((matches += 1))
+    fi
+  done
 
-      used = parts[1]
-      total = parts[2]
-      sub(/[[:space:]]+covered[[:space:]]+in[[:space:]]+plan$/, "", total)
-
-      number = "^[0-9]+([.][0-9]+)?$"
-      if (used ~ number && total ~ number) {
-        result = used "/" total
-        matches++
-      }
-    }
-
-    END {
-      if (matches == 1) {
-        print result
-      }
-    }
-  '
+  [ "$matches" -eq 1 ] || return 1
+  printf '%s\n' "$result"
 }
 
 last_nonempty_line() {
-  awk 'NF { line = $0 } END { sub(/\r$/, "", line); if (line != "") print line }'
+  local line
+  local result
+
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    if [[ "$line" =~ [^[:space:]] ]]; then
+      result="$line"
+    fi
+  done
+
+  [ -n "$result" ] || return 1
+  printf '%s\n' "$result"
 }
 
 fetch_usage() {
@@ -140,7 +138,7 @@ fetch_usage() {
   if [ -n "$parser" ]; then
     parsed_output="$(printf '%s\n' "$raw_output" | /bin/sh -c "$parser")" || return 1
   else
-    parsed_output="$(printf '%s\n' "$raw_output" | parse_2_16_0)"
+    parsed_output="$(printf '%s\n' "$raw_output" | parse_2_16_0)" || return 1
   fi
 
   printf '%s\n' "$parsed_output" | last_nonempty_line

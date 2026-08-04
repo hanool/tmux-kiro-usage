@@ -10,7 +10,6 @@ five minutes by default.
 
 - tmux
 - Bash
-- `awk`, `cksum`, and standard POSIX utilities
 - An authenticated `kiro-cli` available in the tmux server's `PATH`
 
 The built-in parser currently supports `kiro-cli 2.16.0`.
@@ -66,13 +65,50 @@ terminal output, with stdout and stderr combined and ANSI escape sequences
 preserved, through stdin. Its last nonempty output line becomes the status
 value.
 
-```tmux
-set -g @kiro_usage_parser "sed -nE 's/.*\(([0-9]+([.][0-9]+)?) of ([0-9]+([.][0-9]+)?) covered in plan\).*/\1\/\3/p'"
-```
-
 A custom parser bypasses the built-in Kiro CLI version check. An empty result
 or nonzero parser exit status is displayed as `N/A`. The parser is trusted
 configuration and is executed with `/bin/sh -c`.
+
+#### Bundled examples
+
+The bundled parser can display a smooth ten-cell usage bar. It uses partial
+block characters for one-eighth-cell precision and appends the current credit
+values:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh bar"
+```
+
+```text
+▊░░░░░░░░░ 156.67/2000
+██░░░░░░░░ 400/2000
+```
+
+To restore the complete Credits text without ANSI escape sequences, use the
+`credits` mode:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh credits"
+```
+
+```text
+Credits (156.67 of 2000 covered in plan)
+```
+
+The parser does not include colors, so it follows the surrounding status bar
+style. Apply a color in the tmux format if desired:
+
+```tmux
+set -g status-right '#[fg=colour141]Kiro #{kiro_usage}#[default]'
+```
+
+#### Inline parser
+
+The same parser interface accepts inline shell commands. For example:
+
+```tmux
+set -g @kiro_usage_parser "sed -nE 's/.*\(([0-9]+([.][0-9]+)?) of ([0-9]+([.][0-9]+)?) covered in plan\).*/\1\/\3/p'"
+```
 
 ## Compatibility behavior
 
@@ -105,7 +141,7 @@ Run the test and lint suites with:
 
 ```shell
 bats test
-shellcheck kiro-usage.tmux scripts/*.sh test/bin/*
+shellcheck kiro-usage.tmux scripts/*.sh examples/*.sh test/bin/*
 ```
 
 Tests use a fake Kiro CLI and do not access a real account.
