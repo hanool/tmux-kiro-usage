@@ -1,10 +1,17 @@
 # tmux-kiro-usage
 
-Show Kiro CLI credit usage in the tmux status bar.
+Show your Kiro CLI credit usage in the tmux status bar.
 
-The `#{kiro_usage}` placeholder renders the current values reported by Kiro,
-for example `140.08/2000`. The values are fetched dynamically and cached for
-five minutes by default.
+![tmux status bar showing Kiro usage](./screenshots/tmux-kiro-usage.png)
+
+By default, `#{kiro_usage}` displays the used and total credits:
+
+```text
+156.67/2000
+```
+
+The built-in parser supports `kiro-cli 2.16.0`. You can provide a custom
+parser to change the displayed text or support a different Kiro CLI version.
 
 ## Requirements
 
@@ -12,132 +19,263 @@ five minutes by default.
 - Bash
 - An authenticated `kiro-cli` available in the tmux server's `PATH`
 
-The built-in parser currently supports `kiro-cli 2.16.0`.
-
 ## Installation
 
 ### TPM
 
-Add the status placeholder and plugin before the TPM initialization line in
-your tmux configuration:
+Add the placeholder and plugin before the TPM initialization line in your
+tmux configuration:
 
 ```tmux
-set -g status-right 'Kiro #{kiro_usage}'
+set -ag status-right ' Kiro #{kiro_usage}'
+
 set -g @plugin 'hanool/tmux-kiro-usage'
 
+# Keep TPM initialization at the bottom of the file.
 run '~/.tmux/plugins/tpm/tpm'
 ```
 
-Press `prefix + I` to install the plugin, then reload the configuration.
-
-### Manual
-
-Clone the repository and load its entrypoint:
+Press `prefix + I` to install the plugin, then reload the configuration:
 
 ```shell
-git clone https://github.com/hanool/tmux-kiro-usage.git ~/.tmux/plugins/tmux-kiro-usage
+tmux source-file ~/.tmux.conf
+```
+
+### Manual installation
+
+```shell
+git clone https://github.com/hanool/tmux-kiro-usage.git \
+  ~/.tmux/plugins/tmux-kiro-usage
 ```
 
 ```tmux
-set -g status-right 'Kiro #{kiro_usage}'
+set -ag status-right ' Kiro #{kiro_usage}'
 run-shell '~/.tmux/plugins/tmux-kiro-usage/kiro-usage.tmux'
 ```
 
-## Options
+## Usage
 
-### Refresh interval
-
-Kiro usage is cached for 300 seconds so a short tmux `status-interval` does
-not repeatedly invoke the CLI.
+Add `#{kiro_usage}` anywhere in `status-left` or `status-right`. The plugin
+replaces the placeholder with a background command that fetches Kiro usage.
 
 ```tmux
-set -g @kiro_usage_refresh_interval 300
+set -ag status-right ' Kiro #{kiro_usage}'
 ```
 
-Set the interval to `0` to disable caching. Failed requests are displayed and
-cached as `N/A` for the same interval.
-
-### Custom parser
-
-If a Kiro CLI release changes the `/usage` output, set
-`@kiro_usage_parser` to a shell command. The command receives Kiro's raw
-terminal output, with stdout and stderr combined and ANSI escape sequences
-preserved, through stdin. Its last nonempty output line becomes the status
-value.
-
-A custom parser bypasses the built-in Kiro CLI version check. An empty result
-or nonzero parser exit status is displayed as `N/A`. The parser is trusted
-configuration and is executed with `/bin/sh -c`.
-
-#### Bundled examples
-
-The bundled parser can display a smooth ten-cell usage bar. It uses partial
-block characters for one-eighth-cell precision and appends the current credit
-values:
+Usage is cached for 300 seconds by default. Change the refresh interval with
+`@kiro_usage_refresh_interval`:
 
 ```tmux
-set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh bar"
+set -g @kiro_usage_refresh_interval 60  # refresh every minute
 ```
 
-```text
-▊░░░░░░░░░ 156.67/2000
-██░░░░░░░░ 400/2000
+Set it to `0` to disable caching. Failures are displayed and cached as `N/A`
+for the same interval.
+
+## Customize the output
+
+A custom parser lets you format the status text however you want. It also lets
+you use this plugin with a Kiro CLI version that the built-in parser does not
+support.
+
+### 1. Inspect the Kiro output
+
+Run the same command used by the plugin:
+
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1
 ```
 
-To restore the complete Credits text without ANSI escape sequences, use the
-`credits` mode:
-
-```tmux
-set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh credits"
-```
+For `kiro-cli 2.16.0`, the relevant line looks like this:
 
 ```text
 Credits (156.67 of 2000 covered in plan)
 ```
 
-The parser does not include colors, so it follows the surrounding status bar
-style. Apply a color in the tmux format if desired:
+The values will change as you use Kiro.
 
-```tmux
-set -g status-right '#[fg=colour141]Kiro #{kiro_usage}#[default]'
+### 2. Create a parser
+
+A parser reads the raw Kiro output from stdin and prints the one line that
+should appear in the tmux status bar. For example, create
+`~/.config/tmux/kiro-usage-parser.sh` with the following content:
+
+```bash
+#!/usr/bin/env bash
+
+sed -nE 's/.*Credits.*\(([0-9]+([.][0-9]+)?) of ([0-9]+([.][0-9]+)?) covered in plan\).*/\1\/\3/p'
 ```
 
-#### Inline parser
+Make it executable:
 
-The same parser interface accepts inline shell commands. For example:
-
-```tmux
-set -g @kiro_usage_parser "sed -nE 's/.*\(([0-9]+([.][0-9]+)?) of ([0-9]+([.][0-9]+)?) covered in plan\).*/\1\/\3/p'"
+```shell
+chmod +x ~/.config/tmux/kiro-usage-parser.sh
 ```
 
-## Compatibility behavior
+The parser may use Bash, awk, sed, Python, or any other command available on
+your system. It only needs to accept stdin and print a nonempty result.
 
-Without a custom parser, the plugin:
+### 3. Test the parser
 
-1. Requires the version command to return exactly `kiro-cli 2.16.0`.
-2. Runs `kiro-cli chat --no-interactive "/usage"`.
-3. Extracts the two numeric values from `Credits (<used> of <total> covered in plan)`.
-4. Displays `N/A` if the CLI, authentication, version check, or parsing fails.
+Test the parser before adding it to tmux:
 
-Cache data is stored at
-`${XDG_CACHE_HOME:-$HOME/.cache}/tmux-kiro-usage/usage`.
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1 |
+  ~/.config/tmux/kiro-usage-parser.sh
+```
+
+Expected output:
+
+```text
+156.67/2000
+```
+
+### 4. Configure tmux
+
+Set `@kiro_usage_parser` to the parser command:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.config/tmux/kiro-usage-parser.sh"
+```
+
+Then reload tmux:
+
+```shell
+tmux source-file ~/.tmux.conf
+tmux refresh-client -S
+```
+
+The plugin passes the combined stdout and stderr from Kiro to the parser's
+stdin. It displays the parser's last nonempty output line. A nonzero exit code
+or empty output is displayed as `N/A`. Setting a custom parser bypasses the
+built-in Kiro CLI version check.
+
+## Bundled parser examples
+
+Example parsers are installed with the plugin at:
+
+```text
+~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh
+```
+
+The full implementation is available in
+[`examples/kiro_usage_parser.sh`](./examples/kiro_usage_parser.sh). It provides
+the following modes.
+
+### Smooth usage bar
+
+Test it directly:
+
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1 |
+  ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh bar
+```
+
+Configure it:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh bar"
+```
+
+Output:
+
+```text
+▊░░░░░░░░░ 156.67/2000
+```
+
+### Full Credits line
+
+Test it directly:
+
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1 |
+  ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh credits
+```
+
+Configure it:
+
+```tmux
+set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh credits"
+```
+
+Output:
+
+```text
+Credits (156.67 of 2000 covered in plan)
+```
+
+To return to the default `used/total` output, remove the
+`@kiro_usage_parser` setting from your configuration and unset the current
+tmux option:
+
+```shell
+tmux set-option -gu @kiro_usage_parser
+tmux refresh-client -S
+```
 
 ## Troubleshooting
 
-If the command works in a terminal but the plugin displays `N/A`, verify the
-tmux server environment:
+### The status shows `N/A`
+
+Check Kiro first:
+
+```shell
+kiro-cli --version
+kiro-cli chat --no-interactive "/usage" 2>&1
+```
+
+If you configured a parser, run the parser pipeline directly. This shows parser
+errors that tmux normally hides:
+
+```shell
+kiro-cli chat --no-interactive "/usage" 2>&1 |
+  ~/.config/tmux/kiro-usage-parser.sh
+```
+
+For a bundled parser, verify that the installed plugin contains the example:
+
+```shell
+test -x ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh
+```
+
+If the file is missing, update the plugin with `prefix + U` or run:
+
+```shell
+git -C ~/.tmux/plugins/tmux-kiro-usage pull --ff-only
+```
+
+After fixing the command or parser, wait for the configured refresh interval
+or remove the cached result before refreshing the status bar:
+
+```shell
+rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/tmux-kiro-usage/usage"
+tmux refresh-client -S
+```
+
+The tmux server must also be able to find `kiro-cli`:
 
 ```shell
 tmux show-environment -g PATH
 command -v kiro-cli
 ```
 
-Configure the tmux `PATH` with the directory containing `kiro-cli`, or restart
-the tmux server after updating your shell environment.
+### The placeholder is still visible
+
+Inspect the expanded status option:
+
+```shell
+tmux show-option -gqv status-right
+```
+
+If `#{kiro_usage}` has not been replaced, run the plugin entrypoint and refresh
+the status bar:
+
+```shell
+tmux run-shell ~/.tmux/plugins/tmux-kiro-usage/kiro-usage.tmux
+tmux refresh-client -S
+```
 
 ## Development
-
-Run the test and lint suites with:
 
 ```shell
 bats test
