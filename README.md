@@ -10,14 +10,19 @@ By default, `#{kiro_usage}` displays the used and total credits:
 156.67/2000
 ```
 
-The built-in parser supports `kiro-cli 2.16.0`. You can provide a custom
-parser to change the displayed text or support a different Kiro CLI version.
+Usage is read from the Kiro CLI V3 ACP server (`_kiro/account/getUsage`). You
+can provide a custom parser to change the displayed text.
 
 ## Requirements
 
 - tmux
 - Bash
-- An authenticated `kiro-cli` available in the tmux server's `PATH`
+- An authenticated `kiro-cli` with CLI V3 ACP support
+  (`kiro-cli acp --agent-engine=v3`, tested with `kiro-cli 2.28.0`)
+  available in the tmux server's `PATH`
+
+Using `kiro-cli 2.16.0` or another CLI without V3 ACP support? See
+[Older Kiro CLI versions](#older-kiro-cli-versions).
 
 ## Installation
 
@@ -72,38 +77,59 @@ set -g @kiro_usage_refresh_interval 60  # refresh every minute
 Set it to `0` to disable caching. Failures are displayed and cached as `N/A`
 for the same interval.
 
+Each refresh starts a short-lived `kiro-cli acp` process, requests the usage,
+and exits. Nothing keeps running in the background between refreshes.
+
+### Older Kiro CLI versions
+
+The `v2` tag is the last release that reads the text output of
+`kiro-cli chat --no-interactive "/usage"` from `kiro-cli 2.16.0`. Pin it with
+TPM:
+
+```tmux
+set -g @plugin 'hanool/tmux-kiro-usage#v2'
+```
+
+`prefix + U` keeps a pinned install on `v2`. For a manual installation:
+
+```shell
+git clone --branch v2 https://github.com/hanool/tmux-kiro-usage.git \
+  ~/.tmux/plugins/tmux-kiro-usage
+```
+
+See the [`v2` README](https://github.com/hanool/tmux-kiro-usage/blob/v2/README.md)
+for that version's parser format.
+
 ## Customize the output
 
-A custom parser lets you format the status text however you want. It also lets
-you use this plugin with a Kiro CLI version that the built-in parser does not
-support.
+A custom parser lets you format the status text however you want.
 
 ### 1. Inspect the Kiro output
 
-Run the same command used by the plugin:
+Print the raw response the plugin receives from Kiro:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw
 ```
 
-For `kiro-cli 2.16.0`, the relevant line looks like this:
+The output is one JSON-RPC line. The relevant part looks like this:
 
-```text
-Credits (156.67 of 2000 covered in plan)
+```json
+{"resourceType":"CREDIT","displayName":"Credits","used":156.67,"limit":2000,"percentage":7,"hasLimit":true}
 ```
 
 The values will change as you use Kiro.
 
 ### 2. Create a parser
 
-A parser reads the raw Kiro output from stdin and prints the one line that
-should appear in the tmux status bar. For example, create
+A parser reads the raw response from stdin and prints the one line that should
+appear in the tmux status bar. For example, create
 `~/.config/tmux/kiro-usage-parser.sh` with the following content:
 
 ```bash
 #!/usr/bin/env bash
 
-sed -nE 's/.*Credits.*\(([0-9]+([.][0-9]+)?) of ([0-9]+([.][0-9]+)?) covered in plan\).*/\1\/\3/p'
+sed -nE 's/.*"used":([0-9.]+),"limit":([0-9.]+).*/\1 of \2/p'
 ```
 
 Make it executable:
@@ -112,22 +138,22 @@ Make it executable:
 chmod +x ~/.config/tmux/kiro-usage-parser.sh
 ```
 
-The parser may use Bash, awk, sed, Python, or any other command available on
-your system. It only needs to accept stdin and print a nonempty result.
+The parser may use Bash, awk, sed, jq, Python, or any other command available
+on your system. It only needs to accept stdin and print a nonempty result.
 
 ### 3. Test the parser
 
 Test the parser before adding it to tmux:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1 |
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw |
   ~/.config/tmux/kiro-usage-parser.sh
 ```
 
 Expected output:
 
 ```text
-156.67/2000
+156.67 of 2000
 ```
 
 ### 4. Configure tmux
@@ -145,10 +171,9 @@ tmux source-file ~/.tmux.conf
 tmux refresh-client -S
 ```
 
-The plugin passes the combined stdout and stderr from Kiro to the parser's
-stdin. It displays the parser's last nonempty output line. A nonzero exit code
-or empty output is displayed as `N/A`. Setting a custom parser bypasses the
-built-in Kiro CLI version check.
+The plugin passes the `--raw` response to the parser's stdin. It displays the
+parser's last nonempty output line. A nonzero exit code or empty output is
+displayed as `N/A`.
 
 ## Bundled parser examples
 
@@ -167,7 +192,7 @@ the following modes.
 Test it directly:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1 |
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw |
   ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh bar
 ```
 
@@ -190,7 +215,7 @@ This mode removes the decimal portion without rounding.
 Test it directly:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1 |
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw |
   ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh used-only
 ```
 
@@ -203,7 +228,7 @@ set -g @kiro_usage_parser "$HOME/.tmux/plugins/tmux-kiro-usage/examples/kiro_usa
 Output:
 
 ```text
-159
+156
 ```
 
 ### Full Credits line
@@ -211,7 +236,7 @@ Output:
 Test it directly:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1 |
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw |
   ~/.tmux/plugins/tmux-kiro-usage/examples/kiro_usage_parser.sh credits
 ```
 
@@ -240,20 +265,27 @@ tmux refresh-client -S
 
 ### The status shows `N/A`
 
-Check Kiro first:
+Check that Kiro returns a usage response:
 
 ```shell
 kiro-cli --version
-kiro-cli chat --no-interactive "/usage" 2>&1
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw
 ```
+
+An empty result means `kiro-cli` is missing, not authenticated, or does not
+support `kiro-cli acp --agent-engine=v3`. Run `kiro-cli login` if needed, or
+use the [`v2` tag](#older-kiro-cli-versions) with `kiro-cli 2.16.0`.
 
 If you configured a parser, run the parser pipeline directly. This shows parser
 errors that tmux normally hides:
 
 ```shell
-kiro-cli chat --no-interactive "/usage" 2>&1 |
+~/.tmux/plugins/tmux-kiro-usage/scripts/kiro_usage.sh --raw |
   ~/.config/tmux/kiro-usage-parser.sh
 ```
+
+Parsers written for `v2` read the old `/usage` text and do not work with the
+JSON response. Update them, or unset `@kiro_usage_parser`.
 
 For a bundled parser, verify that the installed plugin contains the example:
 
