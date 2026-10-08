@@ -4,31 +4,31 @@ if [ -n "${FAKE_KIRO_CALL_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$FAKE_KIRO_CALL_LOG"
 fi
 
-case "${1:-}" in
-  --version)
-    printf 'kiro-cli %s\n' "${FAKE_KIRO_VERSION:-2.16.0}"
-    ;;
-  chat)
-    case "${FAKE_KIRO_USAGE_MODE:-valid}" in
-      valid)
-        printf '\033[1mEstimated Usage\033[0m | resets on 2026-09-01 | KIRO PRO+\n' >&2
-        printf '\033[1mCredits\033[0m (%s of %s covered in plan)\n' \
-          "${FAKE_KIRO_USED:-140.08}" "${FAKE_KIRO_TOTAL:-2000}" >&2
-        ;;
-      custom)
-        printf 'Usage credits: %s / %s\n' \
-          "${FAKE_KIRO_USED:-140.08}" "${FAKE_KIRO_TOTAL:-2000}" >&2
-        ;;
-      malformed)
-        printf 'Credits are currently unavailable\n' >&2
-        ;;
-      fail)
-        printf 'authentication failed\n' >&2
-        exit 1
-        ;;
-    esac
-    ;;
-  *)
-    exit 2
-    ;;
-esac
+[ "$*" = "acp --agent-engine=v3 --auth-method=cli" ] || exit 2
+
+used="${FAKE_KIRO_USED:-140.08}"
+total="${FAKE_KIRO_TOTAL:-2000}"
+
+while IFS= read -r request; do
+  case "$request" in
+    *'"method":"initialize"'*)
+      [ "${FAKE_KIRO_USAGE_MODE:-valid}" = "exit" ] && exit 1
+      printf '{"jsonrpc":"2.0","method":"_kiro/log","params":{"id":1}}\n'
+      printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{}}}\n'
+      ;;
+    *'"method":"_kiro/account/getUsage"'*)
+      case "${FAKE_KIRO_USAGE_MODE:-valid}" in
+        valid)
+          printf '{"jsonrpc":"2.0","id":2,"result":{"success":true,"data":{"planName":"KIRO PRO+","usageBreakdowns":[{"resourceType":"CREDIT","displayName":"Credits","used":%s,"limit":%s,"percentage":7,"hasLimit":true}],"bonusCredits":[]}}}\n' \
+            "$used" "$total"
+          ;;
+        no-credit)
+          printf '{"jsonrpc":"2.0","id":2,"result":{"success":true,"data":{"usageBreakdowns":[]}}}\n'
+          ;;
+        error)
+          printf '{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}\n'
+          ;;
+      esac
+      ;;
+  esac
+done

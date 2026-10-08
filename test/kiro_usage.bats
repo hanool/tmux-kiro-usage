@@ -8,7 +8,6 @@ setup() {
   export FAKE_KIRO_CALL_LOG="$BATS_TEST_TMPDIR/kiro-calls"
   export FAKE_TMUX_SET_LOG="$BATS_TEST_TMPDIR/tmux-set-calls"
 
-  unset FAKE_KIRO_VERSION
   unset FAKE_KIRO_USED
   unset FAKE_KIRO_TOTAL
   unset FAKE_KIRO_USAGE_MODE
@@ -18,7 +17,7 @@ setup() {
   unset TMUX_STATUS_RIGHT
 }
 
-@test "parses changing credit values from kiro-cli 2.16.0 ANSI output" {
+@test "parses changing credit values from the ACP getUsage response" {
   export FAKE_KIRO_USED="73.42"
   export FAKE_KIRO_TOTAL="950"
 
@@ -26,6 +25,7 @@ setup() {
 
   [ "$status" -eq 0 ]
   [ "$output" = "73.42/950" ]
+  [ "$(cat "$FAKE_KIRO_CALL_LOG")" = "acp --agent-engine=v3 --auth-method=cli" ]
 }
 
 @test "base parser does not require awk or cksum" {
@@ -39,27 +39,18 @@ setup() {
   [ "$output" = "140.08/2000" ]
 }
 
-@test "returns N/A for an unsupported kiro-cli version" {
-  export FAKE_KIRO_VERSION="2.17.0"
+@test "raw mode prints the getUsage response" {
+  export FAKE_KIRO_USED="12.5"
 
-  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
-
-  [ "$status" -eq 0 ]
-  [ "$output" = "N/A" ]
-  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 1 ]
-}
-
-@test "returns N/A when the usage output cannot be parsed" {
-  export FAKE_KIRO_USAGE_MODE="malformed"
-
-  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh" --raw
 
   [ "$status" -eq 0 ]
-  [ "$output" = "N/A" ]
+  [[ "$output" == '{"jsonrpc":"2.0","id":2,"result":'* ]]
+  [[ "$output" == *'"used":12.5,"limit":2000'* ]]
 }
 
-@test "returns N/A when kiro-cli fails" {
-  export FAKE_KIRO_USAGE_MODE="fail"
+@test "returns N/A when the response has no credit breakdown" {
+  export FAKE_KIRO_USAGE_MODE="no-credit"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
 
@@ -67,22 +58,47 @@ setup() {
   [ "$output" = "N/A" ]
 }
 
-@test "custom parser bypasses the version check and receives raw output" {
-  export FAKE_KIRO_VERSION="9.0.0"
-  export FAKE_KIRO_USAGE_MODE="custom"
+@test "returns N/A when getUsage returns a JSON-RPC error" {
+  export FAKE_KIRO_USAGE_MODE="error"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "N/A" ]
+}
+
+@test "returns N/A when the ACP server exits early" {
+  export FAKE_KIRO_USAGE_MODE="exit"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "N/A" ]
+}
+
+@test "returns N/A when kiro-cli is missing" {
+  mkdir -p "$BATS_TEST_TMPDIR/no-kiro"
+  ln -s "$PROJECT_ROOT/test/bin/tmux" "$BATS_TEST_TMPDIR/no-kiro/tmux"
+  export PATH="$BATS_TEST_TMPDIR/no-kiro:/usr/bin:/bin"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "N/A" ]
+}
+
+@test "custom parser receives the raw getUsage response" {
   export FAKE_KIRO_USED="81.5"
   export FAKE_KIRO_TOTAL="3000"
-  export TMUX_KIRO_USAGE_PARSER="awk '/Usage credits:/ { print \$3 \"/\" \$5 }'"
+  export TMUX_KIRO_USAGE_PARSER="sed -nE 's/.*\"used\":([0-9.]+),\"limit\":([0-9.]+).*/\\1 of \\2/p'"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
 
   [ "$status" -eq 0 ]
-  [ "$output" = "81.5/3000" ]
-  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 1 ]
+  [ "$output" = "81.5 of 3000" ]
 }
 
 @test "custom parser uses its last nonempty output line" {
-  export FAKE_KIRO_USAGE_MODE="custom"
   export TMUX_KIRO_USAGE_PARSER="printf 'ignored\\ncustom-result\\n\\n'"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
@@ -92,7 +108,6 @@ setup() {
 }
 
 @test "returns N/A when the custom parser fails" {
-  export FAKE_KIRO_USAGE_MODE="custom"
   export TMUX_KIRO_USAGE_PARSER="false"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
@@ -145,7 +160,7 @@ setup() {
   [ "$output" = "159" ]
 }
 
-@test "bundled credits parser restores the plain Credits line" {
+@test "bundled credits parser prints a plain Credits line" {
   export FAKE_KIRO_USED="156.67"
   export FAKE_KIRO_TOTAL="2000"
   export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh credits"
@@ -156,8 +171,8 @@ setup() {
   [ "$output" = "Credits (156.67 of 2000 covered in plan)" ]
 }
 
-@test "bundled parser returns N/A for malformed output" {
-  export FAKE_KIRO_USAGE_MODE="malformed"
+@test "bundled parser returns N/A without a credit breakdown" {
+  export FAKE_KIRO_USAGE_MODE="no-credit"
   export TMUX_KIRO_USAGE_PARSER="$PROJECT_ROOT/examples/kiro_usage_parser.sh credits"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
@@ -177,11 +192,11 @@ setup() {
 
   [ "$status" -eq 0 ]
   [ "$output" = "10/2000" ]
-  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 2 ]
+  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 1 ]
 }
 
 @test "caches N/A during the cache interval" {
-  export FAKE_KIRO_USAGE_MODE="malformed"
+  export FAKE_KIRO_USAGE_MODE="no-credit"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"
   [ "$output" = "N/A" ]
@@ -191,7 +206,7 @@ setup() {
 
   [ "$status" -eq 0 ]
   [ "$output" = "N/A" ]
-  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 2 ]
+  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 1 ]
 }
 
 @test "zero refresh interval disables the cache" {
@@ -206,11 +221,20 @@ setup() {
 
   [ "$status" -eq 0 ]
   [ "$output" = "20/2000" ]
-  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 4 ]
+  [ "$(wc -l < "$FAKE_KIRO_CALL_LOG")" -eq 2 ]
+}
+
+@test "ignores a value cached by the v2 plugin" {
+  mkdir -p "$XDG_CACHE_HOME/tmux-kiro-usage"
+  printf '%s\ndefault:2.16.0\nstale\n' "$(date +%s)" > "$XDG_CACHE_HOME/tmux-kiro-usage/usage"
+
+  run "$PROJECT_ROOT/scripts/kiro_usage.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "140.08/2000" ]
 }
 
 @test "changing the custom parser invalidates its cached value" {
-  export FAKE_KIRO_USAGE_MODE="custom"
   export TMUX_KIRO_USAGE_PARSER="printf 'first'"
 
   run "$PROJECT_ROOT/scripts/kiro_usage.sh"

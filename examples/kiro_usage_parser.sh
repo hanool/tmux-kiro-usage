@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 
 parse_credits() {
-  local line
-  local matches=0
-  local regex='Credits.*\(([0-9]+([.][0-9]+)?)[[:space:]]+of[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+covered[[:space:]]+in[[:space:]]+plan\)'
+  local response
+  local breakdown_regex='\{[^{}]*"resourceType":[[:space:]]*"CREDIT"[^{}]*\}'
+  local used_regex='"used":[[:space:]]*([0-9]+([.][0-9]+)?)[,}]'
+  local limit_regex='"limit":[[:space:]]*([0-9]+([.][0-9]+)?)[,}]'
+  local breakdown
 
-  while IFS= read -r line; do
-    if [[ "$line" =~ $regex ]]; then
-      USED_CREDITS="${BASH_REMATCH[1]}"
-      TOTAL_CREDITS="${BASH_REMATCH[3]}"
-      ((matches += 1))
-    fi
-  done
+  response="$(cat)"
+  [[ "$response" =~ $breakdown_regex ]] || return 1
+  breakdown="${BASH_REMATCH[0]}"
 
-  [ "$matches" -eq 1 ]
+  [[ "$breakdown" =~ $used_regex ]] || return 1
+  USED_CREDITS="${BASH_REMATCH[1]}"
+  [[ "$breakdown" =~ $limit_regex ]] || return 1
+  TOTAL_CREDITS="${BASH_REMATCH[1]}"
 }
 
 print_bar() {
